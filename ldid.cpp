@@ -618,6 +618,8 @@ class Pointer {
 #define CSSLOT_CODEDIRECTORY uint32_t(0)
 #define CSSLOT_REQUIREMENTS  uint32_t(2)
 #define CSSLOT_ENTITLEMENTS  uint32_t(5)
+// added "-c" flag to dump certificates
+#define CSSLOT_SIGNATURESLOT uint32_t(65536)
 
 struct BlobIndex {
     uint32_t type;
@@ -701,6 +703,9 @@ int main(int argc, const char *argv[]) {
 
     bool flag_A(false);
     bool flag_a(false);
+
+    // added "-c" flag to dump certificates
+    bool flag_c(false);
 
     uint32_t flag_CPUType(_not(uint32_t));
     uint32_t flag_CPUSubtype(_not(uint32_t));
@@ -792,6 +797,9 @@ int main(int argc, const char *argv[]) {
                 woffset = strtoul(argv[argi] + 2, &arge, 0);
                 _assert(arge == argv[argi] + strlen(argv[argi]));
             } break;
+
+            // added "-c" flag to dump certificates
+            case 'c': flag_c = true; break;
 
             default:
                 goto usage;
@@ -1101,6 +1109,24 @@ int main(int argc, const char *argv[]) {
                         uint32_t begin = Swap(super->index[index].offset);
                         struct Blob *entitlements = reinterpret_cast<struct Blob *>(blob + begin);
                         fwrite(entitlements + 1, 1, Swap(entitlements->length) - sizeof(struct Blob), stdout);
+                    }
+            }
+
+            // added "-c" flag to dump certificates
+            if (flag_c) {
+                _assert(signature != NULL);
+
+                uint32_t data = mach_header.Swap(signature->dataoff);
+
+                uint8_t *top = reinterpret_cast<uint8_t *>(mach_header.GetBase());
+                uint8_t *blob = top + data;
+                struct SuperBlob *super = reinterpret_cast<struct SuperBlob *>(blob);
+
+                for (size_t index(0); index != Swap(super->count); ++index)
+                    if (Swap(super->index[index].type) == CSSLOT_SIGNATURESLOT) {
+                        uint32_t begin = Swap(super->index[index].offset);
+                        struct Blob *certificates = reinterpret_cast<struct Blob *>(blob + begin);
+                        fwrite(certificates + 1, 1, Swap(certificates->length) - sizeof(struct Blob), stdout);
                     }
             }
 
