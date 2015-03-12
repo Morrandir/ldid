@@ -24,6 +24,9 @@
 
 #include "sha1.h"
 
+#include <openssl/x509.h>
+#include <openssl/pkcs7.h>
+
 #include <cstring>
 #include <string>
 #include <vector>
@@ -1122,12 +1125,37 @@ int main(int argc, const char *argv[]) {
                 uint8_t *blob = top + data;
                 struct SuperBlob *super = reinterpret_cast<struct SuperBlob *>(blob);
 
-                for (size_t index(0); index != Swap(super->count); ++index)
+                struct Blob *certificates;
+                uint64_t cert_length;
+
+                for (size_t index(0); index != Swap(super->count); ++index) {
                     if (Swap(super->index[index].type) == CSSLOT_SIGNATURESLOT) {
                         uint32_t begin = Swap(super->index[index].offset);
-                        struct Blob *certificates = reinterpret_cast<struct Blob *>(blob + begin);
-                        fwrite(certificates + 1, 1, Swap(certificates->length) - sizeof(struct Blob), stdout);
+                        certificates = reinterpret_cast<struct Blob *>(blob + begin);
+                        cert_length = Swap(certificates->length) - sizeof(struct Blob);
+                        break;
                     }
+                }
+
+                const unsigned char *pcert = reinterpret_cast<const unsigned char *>(certificates + 1);
+                PKCS7 *p7= d2i_PKCS7(NULL, &pcert, cert_length);
+                STACK_OF(X509) *certs = NULL;
+
+                int nid = OBJ_obj2nid(p7->type);
+                if(nid == NID_pkcs7_signed) {
+                    certs = p7->d.sign->cert;
+                } else if(nid == NID_pkcs7_signedAndEnveloped) {
+                    certs = p7->d.signed_and_enveloped->cert;
+                }
+
+                BIO *out = BIO_new_fp(stdout, BIO_NOCLOSE);
+                for(int i = 0; certs && i < sk_X509_num(certs); i++) {
+                    X509 *cert = sk_X509_value(certs, i);
+                    // instead of just X509_print(), use the APIs in crypto/asn1/t_x509.c to find each info.
+                    X509_print(out, cert);
+                }
+
+                int i = 0;
             }
 
             if (flag_s) {
